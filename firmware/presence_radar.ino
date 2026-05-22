@@ -104,6 +104,7 @@ int humanConfidence = 0;
 bool humanDetected = false;
 bool lastHumanDetected = false;
 uint32_t humanPresentSince = 0;
+uint32_t lastPresenceDurationSec = 0;
 uint32_t lastPresenceEventAt = 0;
 int sensitivity = 2;
 int sweepDeg = 0;
@@ -115,6 +116,7 @@ String tacticalLine = "Adaptive RF baseline";
 
 enum ViewMode {
   VIEW_RADAR,
+  VIEW_HUMAN,
   VIEW_ANALYTICS
 };
 
@@ -186,6 +188,22 @@ static void drawTopTab(int x, int w, const String &label, bool active, uint16_t 
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(fg, bg);
   tft.drawString(label, x + w / 2, 18, 2);
+}
+
+static void drawTopTabs() {
+  drawTopTab(4, 72, "RADAR", viewMode == VIEW_RADAR, C_ACCENT);
+  drawTopTab(84, 72, "HUMAN", viewMode == VIEW_HUMAN, C_WARN);
+  drawTopTab(164, 72, "ANALY", viewMode == VIEW_ANALYTICS, C_BLE);
+}
+
+static String formatDuration(uint32_t seconds) {
+  uint32_t minutes = seconds / 60;
+  uint32_t hours = minutes / 60;
+  seconds %= 60;
+  minutes %= 60;
+  if (hours > 0) return String(hours) + "h " + String(minutes) + "m";
+  if (minutes > 0) return String(minutes) + "m " + String(seconds) + "s";
+  return String(seconds) + "s";
 }
 
 enum ButtonEvent {
@@ -498,6 +516,7 @@ static void emitPresenceEventIfNeeded() {
     Serial.println(silhouetteScore);
   } else {
     uint32_t duration = humanPresentSince ? (now - humanPresentSince) / 1000 : 0;
+    lastPresenceDurationSec = duration;
     Serial.print("PBL_RADAR_EVENT,HUMAN_LEFT,duration=");
     Serial.print(duration);
     Serial.print(",confidence=");
@@ -786,8 +805,7 @@ static void drawRadar() {
   tft.fillRect(0, 0, 240, 37, C_PANEL);
   tft.drawFastHLine(0, 37, 240, C_ACCENT);
   uint16_t verdictColor = humanDetected ? C_HOT : (humanConfidence >= 36 ? C_WARN : C_ACCENT);
-  drawTopTab(4, 108, "RADAR", viewMode == VIEW_RADAR, C_ACCENT);
-  drawTopTab(124, 112, "ANALYTICS", viewMode == VIEW_ANALYTICS, C_BLE);
+  drawTopTabs();
   String verdict = humanDetected ? "DETECTED: HUMAN" : (humanConfidence >= 36 ? "SIGNAL: POSSIBLE" : "SCANNING");
   tft.setTextColor(verdictColor, C_BG);
   tft.drawString(verdict + "  C" + String(humanConfidence) + "%", 120, 49, 1);
@@ -859,7 +877,49 @@ static void drawRadar() {
   drawNavButton(4, 281, 54, "SENS", C_ACCENT, navSelection == 0);
   drawNavButton(62, 281, 54, "BASE", C_WARN, navSelection == 1);
   drawNavButton(120, 281, 54, "SCAN", C_WIFI, navSelection == 2);
-  drawNavButton(178, 281, 58, "ANLYT", C_BLE, navSelection == 3);
+  drawNavButton(178, 281, 58, "VIEW", C_BLE, navSelection == 3);
+}
+
+static void drawHumanStatus() {
+  tft.fillScreen(C_BG);
+  tft.fillRect(0, 0, 240, 37, C_PANEL);
+  tft.drawFastHLine(0, 37, 240, C_ACCENT);
+  tft.setTextDatum(MC_DATUM);
+  drawTopTabs();
+
+  uint16_t stateColor = humanDetected ? C_HOT : C_ACCENT;
+  String state = humanDetected ? "HUMAN PRESENT" : "NO HUMAN";
+  String movement = "Quiet";
+  if (humanDetected && motionScore >= 55) movement = "Movement";
+  else if (humanDetected && motionScore >= 28) movement = "Small movement";
+  else if (humanDetected) movement = "Stable";
+
+  uint32_t duration = humanDetected && humanPresentSince ? (millis() - humanPresentSince) / 1000 : lastPresenceDurationSec;
+  String durationLabel = humanDetected ? "Inside now" : "Last visit";
+
+  tft.fillRoundRect(8, 50, 224, 64, 6, C_PANEL);
+  tft.drawRoundRect(8, 50, 224, 64, 6, stateColor);
+  tft.setTextColor(stateColor, C_PANEL);
+  tft.drawString(state, 120, 73, 4);
+  tft.setTextColor(C_MUTED, C_PANEL);
+  tft.drawString("Confidence " + String(humanConfidence) + "%", 120, 101, 2);
+
+  drawAnalyticsCard(8, 122, 106, 50, "DURATION", formatDuration(duration), C_WARN);
+  drawAnalyticsCard(126, 122, 106, 50, "STATUS", movement, stateColor);
+  drawAnalyticsCard(8, 180, 106, 48, "ROOM", humanDetected ? "Occupied" : "Clear", C_ACCENT);
+  drawAnalyticsCard(126, 180, 106, 48, "SIGNALS", String(networkCount + bleCount) + " heard", C_WIFI);
+
+  tft.fillRoundRect(8, 235, 224, 36, 5, C_PANEL);
+  tft.drawRoundRect(8, 235, 224, 36, 5, C_GRID);
+  tft.setTextColor(C_TEXT, C_PANEL);
+  tft.drawString(durationLabel + " | " + movement, 120, 247, 2);
+  tft.setTextColor(C_MUTED, C_PANEL);
+  tft.drawString(humanDetected ? "Privacy safe: no camera, no mic" : "Waiting for room activity", 120, 263, 1);
+
+  drawNavButton(4, 281, 54, "SENS", C_ACCENT, navSelection == 0);
+  drawNavButton(62, 281, 54, "BASE", C_WARN, navSelection == 1);
+  drawNavButton(120, 281, 54, "SCAN", C_WIFI, navSelection == 2);
+  drawNavButton(178, 281, 58, "VIEW", C_BLE, navSelection == 3);
 }
 
 static void drawAnalytics() {
@@ -867,8 +927,7 @@ static void drawAnalytics() {
   tft.fillRect(0, 0, 240, 37, C_PANEL);
   tft.drawFastHLine(0, 37, 240, C_ACCENT);
   tft.setTextDatum(MC_DATUM);
-  drawTopTab(4, 108, "RADAR", viewMode == VIEW_RADAR, C_ACCENT);
-  drawTopTab(124, 112, "ANALYTICS", viewMode == VIEW_ANALYTICS, C_BLE);
+  drawTopTabs();
   tft.setTextColor(C_MUTED, C_BG);
   tft.drawString("LIVE RF + BLE SIGNAL INTEL", 120, 49, 1);
 
@@ -897,14 +956,15 @@ static void drawAnalytics() {
   drawAnalyticsSpark(122, 238, 52, 33, historyRoom, C_ACCENT);
   drawAnalyticsSpark(180, 238, 54, 33, historySilhouette, C_HOT);
 
-  drawNavButton(4, 281, 54, "RADAR", C_ACCENT, navSelection == 0);
-  drawNavButton(62, 281, 54, "SENS", C_WARN, navSelection == 1);
-  drawNavButton(120, 281, 54, "BASE", C_WIFI, navSelection == 2);
-  drawNavButton(178, 281, 58, "SCAN", C_BLE, navSelection == 3);
+  drawNavButton(4, 281, 54, "SENS", C_ACCENT, navSelection == 0);
+  drawNavButton(62, 281, 54, "BASE", C_WARN, navSelection == 1);
+  drawNavButton(120, 281, 54, "SCAN", C_WIFI, navSelection == 2);
+  drawNavButton(178, 281, 58, "VIEW", C_BLE, navSelection == 3);
 }
 
 static void drawCurrentView() {
   if (viewMode == VIEW_ANALYTICS) drawAnalytics();
+  else if (viewMode == VIEW_HUMAN) drawHumanStatus();
   else drawRadar();
 }
 
@@ -912,40 +972,23 @@ static void resetBaseline();
 
 static void activateNavButton(int button) {
   button = constrain(button, 0, 3);
-  if (viewMode == VIEW_RADAR) {
-    if (button == 0) {
-      sensitivity = sensitivity % 4 + 1;
-      inferenceLine = "Sensitivity " + String(sensitivity);
-      tacticalLine = "Button OK";
-    } else if (button == 1) {
-      resetBaseline();
-      inferenceLine = "Baseline reset";
-      tacticalLine = "Learning normal RF";
-    } else if (button == 2) {
-      inferenceLine = "Manual scan";
-      tacticalLine = "Scanning now";
-      scanWifi();
-    } else {
-      viewMode = VIEW_ANALYTICS;
-      navSelection = 0;
-    }
+  if (button == 0) {
+    sensitivity = sensitivity % 4 + 1;
+    inferenceLine = "Sensitivity " + String(sensitivity);
+    tacticalLine = "Button OK";
+  } else if (button == 1) {
+    resetBaseline();
+    inferenceLine = "Baseline reset";
+    tacticalLine = "Learning normal RF";
+  } else if (button == 2) {
+    inferenceLine = "Manual scan";
+    tacticalLine = "Scanning now";
+    scanWifi();
   } else {
-    if (button == 0) {
-      viewMode = VIEW_RADAR;
-      navSelection = 0;
-    } else if (button == 1) {
-      sensitivity = sensitivity % 4 + 1;
-      inferenceLine = "Sensitivity " + String(sensitivity);
-      tacticalLine = "Analytics button OK";
-    } else if (button == 2) {
-      resetBaseline();
-      inferenceLine = "Baseline reset";
-      tacticalLine = "Learning normal RF";
-    } else {
-      inferenceLine = "Manual scan";
-      tacticalLine = "Scanning now";
-      scanWifi();
-    }
+    if (viewMode == VIEW_RADAR) viewMode = VIEW_HUMAN;
+    else if (viewMode == VIEW_HUMAN) viewMode = VIEW_ANALYTICS;
+    else viewMode = VIEW_RADAR;
+    navSelection = 0;
   }
 }
 
@@ -985,15 +1028,20 @@ static void resetBaseline() {
   humanDetected = false;
   lastHumanDetected = false;
   humanPresentSince = 0;
+  lastPresenceDurationSec = 0;
   lastPresenceEventAt = 0;
 }
 
 static void handleControlTap(int x, int y) {
   if (y <= 60) {
-    viewMode = x < 120 ? VIEW_RADAR : VIEW_ANALYTICS;
+    if (x < 80) viewMode = VIEW_RADAR;
+    else if (x < 160) viewMode = VIEW_HUMAN;
+    else viewMode = VIEW_ANALYTICS;
     navSelection = 0;
     Serial.print("PBL_RADAR_UI,tab=");
-    Serial.println(viewMode == VIEW_RADAR ? "RADAR" : "ANALYTICS");
+    if (viewMode == VIEW_RADAR) Serial.println("RADAR");
+    else if (viewMode == VIEW_HUMAN) Serial.println("HUMAN");
+    else Serial.println("ANALYTICS");
     drawCurrentView();
     return;
   }

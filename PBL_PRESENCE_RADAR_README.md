@@ -59,6 +59,7 @@ It then combines Wi-Fi volatility, BLE volatility, device flux, baseline drift, 
 - The radar view includes a pro heat-map layer: cooler signal zones are blue/cyan, medium energy is yellow/orange, and high inferred activity becomes red.
 - Gadget heat appears as compact Wi-Fi/BLE hotspots; movement heat appears as larger fused contour regions.
 - The top banner shows the main verdict: `DETECTED: HUMAN`, `SIGNAL: POSSIBLE`, or `SCANNING`, plus a confidence percentage.
+- The `HUMAN` tab is the end-user view. It avoids RF jargon and shows only human present/absent, duration, stable/movement status, confidence, room state, and signal count.
 - `THIS ROOM` means the signal change looks local to the T-HMI.
 - `NEARBY` means the change could be a wall, adjacent room, hallway, or Wi-Fi environment shift.
 - Inference labels include:
@@ -74,9 +75,9 @@ It then combines Wi-Fi volatility, BLE volatility, device flux, baseline drift, 
 - `SENS`: cycle sensitivity 1-4.
 - `BASE`: set the current room as the quiet baseline.
 - `SCAN`: force a Wi-Fi scan.
-- `ANLYT`: open live analytics with confidence, room score, motion score, RF/BLE source counts, new/vanished signals, noise floor, and history charts.
-- Top tabs: tap `RADAR` or `ANALYTICS` to switch views directly.
-- On the analytics screen, `RADAR` returns to the main radar view.
+- `VIEW`: cycle Radar -> Human -> Analytics.
+- Top tabs: tap `RADAR`, `HUMAN`, or `ANALY` to switch views directly.
+- `VIEW`: cycle Radar -> Human -> Analytics from the bottom controls or GPIO0.
 - Touch controls use large forgiving hit zones at the bottom, with a top-edge fallback for touch calibration quirks.
 - GPIO0 short press: move the highlighted bottom button.
 - GPIO0 long press: enter/activate the highlighted button.
