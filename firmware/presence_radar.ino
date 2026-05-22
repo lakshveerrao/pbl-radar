@@ -132,7 +132,7 @@ enum ViewMode {
   VIEW_ANALYTICS
 };
 
-ViewMode viewMode = VIEW_RADAR;
+ViewMode viewMode = VIEW_HUMAN;
 int navSelection = 0;
 int historyConfidence[30] = {0};
 int historyMotion[30] = {0};
@@ -1092,6 +1092,7 @@ static void drawHumanStatus() {
 
   uint16_t stateColor = humanDetected ? C_HOT : C_ACCENT;
   String state = humanDetected ? "HUMAN PRESENT" : "NO HUMAN";
+  int estimatedCount = humanDetected ? max(1, possibleHumanCount) : 0;
   String movement = "Quiet";
   if (humanDetected && motionScore >= 55) movement = "Movement";
   else if (humanDetected && motionScore >= 28) movement = "Small movement";
@@ -1103,9 +1104,10 @@ static void drawHumanStatus() {
   tft.fillRoundRect(8, 43, 224, 68, 6, C_PANEL);
   tft.drawRoundRect(8, 43, 224, 68, 6, stateColor);
   tft.setTextColor(stateColor, C_PANEL);
-  tft.drawString(state, 120, 64, 4);
+  tft.drawString(state, 120, 61, 4);
   tft.setTextColor(C_MUTED, C_PANEL);
-  tft.drawString("C" + String(humanConfidence) + "%  " + movement + "  " + formatDuration(duration), 120, 94, 2);
+  tft.drawString("COUNT " + String(estimatedCount) + "  C" + String(humanConfidence) + "%  " + movement, 120, 91, 2);
+  tft.drawString(formatDuration(duration), 120, 106, 1);
 
   drawHumanRoomScene(stateColor);
 
