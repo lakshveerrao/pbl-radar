@@ -39,6 +39,7 @@ It then combines Wi-Fi volatility, BLE volatility, device flux, baseline drift, 
 
 - `R`: this-room confidence.
 - `M`: motion/change confidence.
+- `X`: software mesh strength from fused Wi-Fi/BLE field disturbance.
 - `H?`: inferred mover estimate.
 - `S`: RF/BLE silhouette strength.
 - `B`: BLE advertiser count.
@@ -51,6 +52,7 @@ It then combines Wi-Fi volatility, BLE volatility, device flux, baseline drift, 
 - Red/orange stick figures represent likely movement sectors.
 - `R` is this-room confidence.
 - `M` is motion/change confidence.
+- `X` is the software signal-mesh strength.
 - `H?` is an inferred mover estimate, not a confirmed headcount.
 - `S` is the strength of the live inferred RF/BLE silhouette.
 - `B` is nearby BLE advertiser count; magenta squares on the radar are BLE hints.
@@ -58,6 +60,7 @@ It then combines Wi-Fi volatility, BLE volatility, device flux, baseline drift, 
 - The current display uses a restrained pro HUD style: RF contour, sector vectors, sparse blips, metric bars, and status panel.
 - The radar view includes a pro heat-map layer: cooler signal zones are blue/cyan, medium energy is yellow/orange, and high inferred activity becomes red.
 - Gadget heat appears as compact Wi-Fi/BLE hotspots; movement heat appears as larger fused contour regions.
+- The current build includes a software signal-mesh layer. It treats the strongest stable Wi-Fi source, such as a dedicated DIR-1950 hotspot/router, as an RF field anchor and fuses nearby/opposite zone changes into a stronger movement blob.
 - The top banner shows the main verdict: `DETECTED: HUMAN`, `SIGNAL: POSSIBLE`, or `SCANNING`, plus a confidence percentage.
 - The `HUMAN` tab is the end-user view. It avoids RF jargon and shows only human present/absent, duration, stable/movement status, confidence, room state, and signal count.
 - `THIS ROOM` means the signal change looks local to the T-HMI.
@@ -104,3 +107,5 @@ The bridge uses SMTP if `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and `SMTP_PASS` a
 Better true human presence would need BLE identity tracking, mmWave, PIR, or a paired phone/watch signal. This build stays privacy-friendly: no camera, no microphone.
 
 Room-by-room awareness will need multiple ESP32 nodes later. With one T-HMI, `PBL-Radar` is optimized for this room and can only mark other-room effects as `NEARBY`.
+
+For the current T-HMI + router setup, the router is used as an RF illuminator. It improves signal-field consistency, but the displayed blobs and shape labels are inferred RF shadows, not camera images or medically validated body tracking.

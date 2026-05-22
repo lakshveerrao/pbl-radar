@@ -101,6 +101,13 @@ int topZoneB = 4;
 int possibleHumanCount = 0;
 int silhouetteScore = 0;
 int humanConfidence = 0;
+int meshScore = 0;
+int anchorRssi = -100;
+int anchorZone = 0;
+int anchorDelta = 0;
+int anchorQuality = 0;
+uint32_t anchorHash = 0;
+String shapeLabel = "No clear shape";
 bool humanDetected = false;
 bool lastHumanDetected = false;
 uint32_t humanPresentSince = 0;
@@ -320,6 +327,51 @@ static void updateMotionField() {
   silhouetteScore = constrain(total / 4 + motionStreak * 4, 0, 100);
 }
 
+static void updateSignalMesh() {
+  int meshTotal = 0;
+  int peak = 0;
+  int opposite = (anchorZone + 4) % 8;
+  int left = (anchorZone + 7) % 8;
+  int right = (anchorZone + 1) % 8;
+  int anchorPush = constrain(anchorQuality / 5 + anchorDelta * 3, 0, 42);
+
+  zoneEnergy[anchorZone] += anchorPush / 2;
+  zoneEnergy[opposite] += anchorPush;
+  zoneEnergy[left] += anchorPush / 3;
+  zoneEnergy[right] += anchorPush / 3;
+
+  for (int i = 0; i < 8; i++) {
+    int neighbor = (zoneEnergy[(i + 7) % 8] + zoneEnergy[(i + 1) % 8]) / 4;
+    int bridge = (i == opposite || i == anchorZone) ? anchorPush / 2 : 0;
+    int fused = constrain(zoneEnergy[i] + neighbor + bridge, 0, 130);
+    zoneEnergy[i] = (zoneEnergy[i] * 2 + fused) / 3;
+    meshTotal += zoneEnergy[i];
+    peak = max(peak, zoneEnergy[i]);
+  }
+  meshScore = constrain(meshTotal / 6 + peak / 2 + anchorQuality / 8, 0, 100);
+}
+
+static void classifyRfShape() {
+  int spread = 0;
+  for (int i = 0; i < 8; i++) {
+    if (zoneHeat[i] > 18) spread++;
+  }
+
+  if (humanConfidence < 42 && silhouetteScore < 32) {
+    shapeLabel = "No clear body";
+  } else if (motionScore >= 70 && spread >= 4) {
+    shapeLabel = "Wide moving shape";
+  } else if (motionScore >= 52) {
+    shapeLabel = "Moving RF body";
+  } else if (silhouetteScore >= 62 && motionScore < 38) {
+    shapeLabel = "Stable human blob";
+  } else if (meshScore >= 55) {
+    shapeLabel = "Partial RF shape";
+  } else {
+    shapeLabel = "Weak human trace";
+  }
+}
+
 static void updateAdaptiveBaseline(int avg, int rawMotion) {
   if (rfBaseCount < 0) {
     rfBaseCount = networkCount;
@@ -425,7 +477,8 @@ static void inferPresence() {
   } else {
     possibleHumanCount = 0;
   }
-  humanConfidence = constrain((roomScore * 2 + motionScore * 2 + silhouetteScore * 3 + motionStreak * 8 + possibleHumanCount * 18) / 8, 0, 100);
+  humanConfidence = constrain((roomScore * 2 + motionScore * 2 + silhouetteScore * 3 + meshScore + motionStreak * 8 + possibleHumanCount * 18) / 9, 0, 100);
+  classifyRfShape();
   bool rawHuman = scanSamples >= 4 &&
                   possibleHumanCount >= 1 &&
                   humanConfidence >= 55 &&
@@ -503,7 +556,11 @@ static void emitPresenceEventIfNeeded() {
   Serial.print(",ble=");
   Serial.print(bleCount);
   Serial.print(",ap=");
-  Serial.println(networkCount);
+  Serial.print(networkCount);
+  Serial.print(",mesh=");
+  Serial.print(meshScore);
+  Serial.print(",anchor=");
+  Serial.println(anchorQuality);
 
   if (humanDetected == lastHumanDetected) return;
   uint32_t now = millis();
@@ -625,11 +682,14 @@ static void scanWifi() {
   vanishedDeviceCount = 0;
   for (int i = 0; i < 8; i++) zoneEnergy[i] = 0;
   pointCount = min(networkCount, 24);
+  uint32_t bestHash = 0;
+  int bestZone = 0;
   for (int i = 0; i < pointCount; i++) {
     int rssi = WiFi.RSSI(i);
     int ch = WiFi.channel(i);
     uint8_t *bssid = WiFi.BSSID(i);
     uint32_t hash = bssid ? fnv1a(bssid, 6) : hashString(WiFi.SSID(i));
+    int zone = ((int)(hash & 0x7) + ch) % 8;
     if (seenCount < 32) {
       seenHashes[seenCount] = hash;
       seenRssi[seenCount] = rssi;
@@ -638,18 +698,29 @@ static void scanWifi() {
     }
     int prior = prevRssiFor(hash);
     int delta = prior == -127 ? 12 : abs(rssi - prior);
-    int zone = ((int)(hash & 0x7) + ch) % 8;
-    zoneEnergy[zone] += constrain(delta + max(0, rssi + 80) / 6, 0, 28);
+    int localWeight = max(0, rssi + 86) / 4;
+    zoneEnergy[zone] += constrain(delta + localWeight, 0, 32);
     points[i] = {(int16_t)rssi, (uint8_t)ch, 0};
-    strongest = max(strongest, rssi);
+    if (rssi > strongest) {
+      strongest = rssi;
+      bestHash = hash;
+      bestZone = zone;
+    }
     rssiSum += rssi;
     if (rssi > -62) strongCount++;
   }
+  int previousAnchor = anchorRssi;
+  anchorHash = bestHash;
+  anchorRssi = strongest;
+  anchorZone = bestZone;
+  anchorDelta = previousAnchor <= -99 ? 0 : abs(anchorRssi - previousAnchor);
+  anchorQuality = constrain((anchorRssi + 92) * 3 + strongCount * 8, 0, 100);
   for (int i = 0; i < prevCount; i++) {
     if (!hashIn(prevHashes[i], seenHashes, seenCount)) vanishedDeviceCount++;
   }
   WiFi.scanDelete();
   scanBle();
+  updateSignalMesh();
   computePresence();
   recordAnalyticsSample();
   emitPresenceEventIfNeeded();
@@ -805,6 +876,25 @@ static void drawThermalField(int cx, int cy, int r) {
   }
 }
 
+static void drawMeshField(int cx, int cy, int r) {
+  float anchorAngle = (anchorZone * 45 + 22) * DEG_TO_RAD;
+  int ax = cx + cos(anchorAngle) * (r - 8);
+  int ay = cy + sin(anchorAngle) * (r - 8);
+  tft.drawCircle(ax, ay, 6, C_WIFI);
+  tft.drawFastHLine(ax - 9, ay, 19, C_WIFI);
+  tft.drawFastVLine(ax, ay - 9, 19, C_WIFI);
+  for (int i = 0; i < 8; i++) {
+    int heat = constrain((int)zoneHeat[i] + zoneEnergy[i] / 2, 0, 100);
+    if (heat < 12) continue;
+    float a = (i * 45 + 22) * DEG_TO_RAD;
+    int ex = cx + cos(a) * (r - 12);
+    int ey = cy + sin(a) * (r - 12);
+    uint16_t col = heatColor(heat);
+    tft.drawLine(ax, ay, ex, ey, col);
+    if (heat > 45) tft.drawLine(ax + 1, ay, ex + 1, ey, col);
+  }
+}
+
 static void drawRadar() {
   tft.fillScreen(C_BG);
   tft.setTextDatum(MC_DATUM);
@@ -820,6 +910,7 @@ static void drawRadar() {
   int cy = 137;
   int r = 78;
   drawThermalField(cx, cy, r);
+  drawMeshField(cx, cy, r);
   tft.drawCircle(cx, cy, r, C_GRID);
   tft.drawCircle(cx, cy, 55, C_GRID2);
   tft.drawCircle(cx, cy, 28, C_GRID2);
@@ -872,10 +963,10 @@ static void drawRadar() {
   tft.setTextColor(c, C_PANEL);
   tft.drawString(inferenceLine, 13, 218, 2);
   tft.setTextColor(C_TEXT, C_PANEL);
-  tft.drawString(tacticalLine, 13, 235, 1);
+  tft.drawString(shapeLabel, 13, 235, 1);
   drawMetricBar(13, 249, 48, "R", roomScore, C_ACCENT);
   drawMetricBar(82, 249, 48, "M", motionScore, C_WARN);
-  drawMetricBar(151, 249, 48, "H", humanConfidence, verdictColor);
+  drawMetricBar(151, 249, 48, "X", meshScore, verdictColor);
   tft.setTextColor(C_MUTED, C_PANEL);
   tft.drawString("BLE " + String(bleCount), 198, 249, 1);
   tft.drawString("AP " + String(networkCount), 198, 260, 1);
@@ -912,8 +1003,8 @@ static void drawHumanStatus() {
 
   drawAnalyticsCard(8, 122, 106, 50, "DURATION", formatDuration(duration), C_WARN);
   drawAnalyticsCard(126, 122, 106, 50, "STATUS", movement, stateColor);
-  drawAnalyticsCard(8, 180, 106, 48, "ROOM", humanDetected ? "Occupied" : "Clear", C_ACCENT);
-  drawAnalyticsCard(126, 180, 106, 48, "SIGNALS", String(networkCount + bleCount) + " heard", C_WIFI);
+  drawAnalyticsCard(8, 180, 106, 48, "SHAPE", shapeLabel, C_WARN);
+  drawAnalyticsCard(126, 180, 106, 48, "MESH", String(meshScore) + "%", C_WIFI);
 
   tft.fillRoundRect(8, 235, 224, 36, 5, C_PANEL);
   tft.drawRoundRect(8, 235, 224, 36, 5, C_GRID);
@@ -942,14 +1033,14 @@ static void drawAnalytics() {
   drawAnalyticsCard(124, 58, 110, 43, "SOURCES", "AP " + String(networkCount) + "  BLE " + String(bleCount), C_WIFI);
   drawAnalyticsCard(6, 106, 70, 39, "NEW", "W" + String(newDeviceCount) + " B" + String(newBleCount), C_WARN);
   drawAnalyticsCard(84, 106, 70, 39, "LEFT", "W" + String(vanishedDeviceCount) + " B" + String(vanishedBleCount), C_BLE);
-  drawAnalyticsCard(162, 106, 72, 39, "NOISE", String((int)rfNoiseFloor), C_ACCENT);
+  drawAnalyticsCard(162, 106, 72, 39, "MESH", String(meshScore) + "%", C_ACCENT);
 
   tft.fillRoundRect(6, 151, 228, 69, 5, C_PANEL);
   tft.drawRoundRect(6, 151, 228, 69, 5, C_GRID);
   drawAnalyticsBar(15, 157, 94, "CONF", humanConfidence, verdictColor);
   drawAnalyticsBar(129, 157, 94, "ROOM", roomScore, C_ACCENT);
   drawAnalyticsBar(15, 188, 94, "MOTION", motionScore, C_WARN);
-  drawAnalyticsBar(129, 188, 94, "SHAPE", silhouetteScore, C_HOT);
+  drawAnalyticsBar(129, 188, 94, "SHAPE", max(silhouetteScore, meshScore), C_HOT);
 
   tft.setTextDatum(TL_DATUM);
   tft.setTextColor(C_TEXT, C_BG);
@@ -1035,6 +1126,10 @@ static void resetBaseline() {
   possibleHumanCount = 0;
   silhouetteScore = 0;
   humanConfidence = 0;
+  meshScore = 0;
+  anchorDelta = 0;
+  anchorQuality = 0;
+  shapeLabel = "No clear shape";
   humanDetected = false;
   lastHumanDetected = false;
   humanPresentSince = 0;
