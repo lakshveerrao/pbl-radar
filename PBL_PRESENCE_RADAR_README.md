@@ -62,7 +62,7 @@ It then combines Wi-Fi volatility, BLE volatility, device flux, baseline drift, 
 - Gadget heat appears as compact Wi-Fi/BLE hotspots; movement heat appears as larger fused contour regions.
 - The current build includes a software signal-mesh layer. It treats the strongest stable Wi-Fi source, such as a dedicated DIR-1950 hotspot/router, as an RF field anchor and fuses nearby/opposite zone changes into a stronger movement blob.
 - The top banner shows the main verdict: `DETECTED: HUMAN`, `SIGNAL: POSSIBLE`, or `SCANNING`, plus a confidence percentage.
-- The `HUMAN` tab is the end-user view. It avoids RF jargon and shows only human present/absent, duration, stable/movement status, confidence, room state, and signal count.
+- The `HUMAN` tab is the end-user view. It shows a spatial room-style map with the T-HMI position, router/RF anchor, field lines, inferred RF silhouette/blobs, human present/absent, duration, stable/movement status, and confidence.
 - `THIS ROOM` means the signal change looks local to the T-HMI.
 - `NEARBY` means the change could be a wall, adjacent room, hallway, or Wi-Fi environment shift.
 - Inference labels include:

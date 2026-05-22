@@ -815,6 +815,76 @@ static void drawAnalyticsCard(int x, int y, int w, int h, const String &label, c
   tft.drawString(value, x + 7, y + 20, 2);
 }
 
+static void drawRoomHumanSilhouette(int x, int y, int intensity, uint16_t color) {
+  intensity = constrain(intensity, 0, 100);
+  int bodyH = map(intensity, 20, 100, 24, 46);
+  int bodyW = max(10, bodyH / 3);
+  tft.drawCircle(x, y - bodyH / 2 - 7, max(4, bodyW / 2), color);
+  tft.fillEllipse(x, y, bodyW, bodyH / 2, heatColor(max(28, intensity)));
+  tft.drawEllipse(x, y, bodyW + 5, bodyH / 2 + 6, C_TEXT);
+  tft.drawFastHLine(x - bodyW - 10, y, bodyW * 2 + 20, C_MUTED);
+  tft.drawFastVLine(x, y - bodyH / 2 - 16, bodyH + 28, C_MUTED);
+}
+
+static void drawHumanRoomScene(uint16_t stateColor) {
+  int rx = 10;
+  int ry = 117;
+  int rw = 220;
+  int rh = 110;
+  int deviceX = rx + 18;
+  int deviceY = ry + rh - 18;
+  int anchorX = rx + rw - 20;
+  int anchorY = ry + 22;
+
+  tft.fillRoundRect(rx, ry, rw, rh, 6, C_PANEL);
+  tft.drawRoundRect(rx, ry, rw, rh, 6, C_GRID);
+  tft.drawRect(rx + 10, ry + 10, rw - 20, rh - 20, C_GRID2);
+  tft.drawFastHLine(rx + 28, ry + 36, 42, C_GRID2);
+  tft.drawFastVLine(rx + 72, ry + 10, 36, C_GRID2);
+  tft.drawFastHLine(rx + 125, ry + rh - 28, 64, C_GRID2);
+  tft.drawFastVLine(rx + 124, ry + rh - 52, 24, C_GRID2);
+
+  tft.fillCircle(deviceX, deviceY, 5, C_ACCENT);
+  tft.drawCircle(deviceX, deviceY, 9, C_ACCENT);
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextColor(C_MUTED, C_PANEL);
+  tft.drawString("T-HMI", deviceX + 9, deviceY - 5, 1);
+
+  tft.drawCircle(anchorX, anchorY, 7, C_WIFI);
+  tft.drawFastHLine(anchorX - 12, anchorY, 25, C_WIFI);
+  tft.drawFastVLine(anchorX, anchorY - 12, 25, C_WIFI);
+  tft.drawString("RF", anchorX - 5, anchorY + 13, 1);
+
+  for (int i = 0; i < 5; i++) {
+    int bend = map(i, 0, 4, -36, 36);
+    uint16_t col = i == 2 ? C_WIFI : C_GRID;
+    tft.drawLine(anchorX, anchorY, rx + rw / 2 + bend, ry + rh / 2, col);
+    tft.drawLine(rx + rw / 2 + bend, ry + rh / 2, deviceX, deviceY, col);
+  }
+
+  int heat = max(meshScore, silhouetteScore);
+  int sx = rx + rw / 2 + constrain((topZoneA - 3) * 12, -48, 48);
+  int sy = ry + rh / 2 + constrain((motionScore - 50) / 3, -18, 18);
+  if (humanDetected || humanConfidence >= 45 || heat >= 45) {
+    drawHeatSpot(sx, sy, heat, 31);
+    drawRoomHumanSilhouette(sx, sy + 10, heat, stateColor);
+    if (shapeLabel == "Wide moving shape" || possibleHumanCount >= 2) {
+      int sx2 = sx + (topZoneB > topZoneA ? 38 : -38);
+      drawHeatSpot(sx2, sy - 4, max(35, heat * 2 / 3), 22);
+      drawRoomHumanSilhouette(sx2, sy + 8, max(35, heat * 2 / 3), C_WARN);
+    }
+  } else {
+    tft.drawCircle(rx + rw / 2, ry + rh / 2, 18, C_GRID2);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(C_MUTED, C_PANEL);
+    tft.drawString("clear", rx + rw / 2, ry + rh / 2, 2);
+  }
+
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextColor(C_TEXT, C_PANEL);
+  tft.drawString(shapeLabel, rx + 12, ry + rh - 17, 1);
+}
+
 static void drawRfSilhouette(int cx, int cy) {
   int total = 0;
   float sumX = 0;
@@ -994,22 +1064,19 @@ static void drawHumanStatus() {
   uint32_t duration = humanDetected && humanPresentSince ? (millis() - humanPresentSince) / 1000 : lastPresenceDurationSec;
   String durationLabel = humanDetected ? "Inside now" : "Last visit";
 
-  tft.fillRoundRect(8, 50, 224, 64, 6, C_PANEL);
-  tft.drawRoundRect(8, 50, 224, 64, 6, stateColor);
+  tft.fillRoundRect(8, 43, 224, 68, 6, C_PANEL);
+  tft.drawRoundRect(8, 43, 224, 68, 6, stateColor);
   tft.setTextColor(stateColor, C_PANEL);
-  tft.drawString(state, 120, 73, 4);
+  tft.drawString(state, 120, 64, 4);
   tft.setTextColor(C_MUTED, C_PANEL);
-  tft.drawString("Confidence " + String(humanConfidence) + "%", 120, 101, 2);
+  tft.drawString("C" + String(humanConfidence) + "%  " + movement + "  " + formatDuration(duration), 120, 94, 2);
 
-  drawAnalyticsCard(8, 122, 106, 50, "DURATION", formatDuration(duration), C_WARN);
-  drawAnalyticsCard(126, 122, 106, 50, "STATUS", movement, stateColor);
-  drawAnalyticsCard(8, 180, 106, 48, "SHAPE", shapeLabel, C_WARN);
-  drawAnalyticsCard(126, 180, 106, 48, "MESH", String(meshScore) + "%", C_WIFI);
+  drawHumanRoomScene(stateColor);
 
   tft.fillRoundRect(8, 235, 224, 36, 5, C_PANEL);
   tft.drawRoundRect(8, 235, 224, 36, 5, C_GRID);
   tft.setTextColor(C_TEXT, C_PANEL);
-  tft.drawString(durationLabel + " | " + movement, 120, 247, 2);
+  tft.drawString(durationLabel + " | Mesh " + String(meshScore) + "%", 120, 247, 2);
   tft.setTextColor(C_MUTED, C_PANEL);
   tft.drawString(humanDetected ? "Privacy safe: no camera, no mic" : "Waiting for room activity", 120, 263, 1);
 
