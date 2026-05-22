@@ -76,8 +76,8 @@ It then combines Wi-Fi volatility, BLE volatility, device flux, baseline drift, 
 - `BASE`: set the current room as the quiet baseline.
 - `SCAN`: force a Wi-Fi scan.
 - `VIEW`: cycle Radar -> Human -> Analytics.
-- Top tabs: tap `RADAR`, `HUMAN`, or `ANALY` to switch views directly.
-- `VIEW`: cycle Radar -> Human -> Analytics from the bottom controls or GPIO0.
+- Top tabs: tap `RADAR`, `HUMAN`, or `ANALY` to switch views directly. The touch area is intentionally larger than the visible tab.
+- The bottom-right view button changes label by screen: `HUMAN` on Radar, `ANALY` on Human, and `RADAR` on Analytics.
 - Touch controls use large forgiving hit zones at the bottom, with a top-edge fallback for touch calibration quirks.
 - GPIO0 short press: move the highlighted bottom button.
 - GPIO0 long press: enter/activate the highlighted button.

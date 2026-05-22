@@ -191,9 +191,15 @@ static void drawTopTab(int x, int w, const String &label, bool active, uint16_t 
 }
 
 static void drawTopTabs() {
-  drawTopTab(4, 72, "RADAR", viewMode == VIEW_RADAR, C_ACCENT);
-  drawTopTab(84, 72, "HUMAN", viewMode == VIEW_HUMAN, C_WARN);
-  drawTopTab(164, 72, "ANALY", viewMode == VIEW_ANALYTICS, C_BLE);
+  drawTopTab(2, 76, "RADAR", viewMode == VIEW_RADAR, C_ACCENT);
+  drawTopTab(82, 76, "HUMAN", viewMode == VIEW_HUMAN, C_WARN);
+  drawTopTab(162, 76, "ANALY", viewMode == VIEW_ANALYTICS, C_BLE);
+}
+
+static String viewButtonLabel() {
+  if (viewMode == VIEW_RADAR) return "HUMAN";
+  if (viewMode == VIEW_HUMAN) return "ANALY";
+  return "RADAR";
 }
 
 static String formatDuration(uint32_t seconds) {
@@ -877,7 +883,7 @@ static void drawRadar() {
   drawNavButton(4, 281, 54, "SENS", C_ACCENT, navSelection == 0);
   drawNavButton(62, 281, 54, "BASE", C_WARN, navSelection == 1);
   drawNavButton(120, 281, 54, "SCAN", C_WIFI, navSelection == 2);
-  drawNavButton(178, 281, 58, "VIEW", C_BLE, navSelection == 3);
+  drawNavButton(178, 281, 58, viewButtonLabel(), C_BLE, navSelection == 3);
 }
 
 static void drawHumanStatus() {
@@ -919,7 +925,7 @@ static void drawHumanStatus() {
   drawNavButton(4, 281, 54, "SENS", C_ACCENT, navSelection == 0);
   drawNavButton(62, 281, 54, "BASE", C_WARN, navSelection == 1);
   drawNavButton(120, 281, 54, "SCAN", C_WIFI, navSelection == 2);
-  drawNavButton(178, 281, 58, "VIEW", C_BLE, navSelection == 3);
+  drawNavButton(178, 281, 58, viewButtonLabel(), C_BLE, navSelection == 3);
 }
 
 static void drawAnalytics() {
@@ -959,7 +965,7 @@ static void drawAnalytics() {
   drawNavButton(4, 281, 54, "SENS", C_ACCENT, navSelection == 0);
   drawNavButton(62, 281, 54, "BASE", C_WARN, navSelection == 1);
   drawNavButton(120, 281, 54, "SCAN", C_WIFI, navSelection == 2);
-  drawNavButton(178, 281, 58, "VIEW", C_BLE, navSelection == 3);
+  drawNavButton(178, 281, 58, viewButtonLabel(), C_BLE, navSelection == 3);
 }
 
 static void drawCurrentView() {
@@ -989,6 +995,10 @@ static void activateNavButton(int button) {
     else if (viewMode == VIEW_HUMAN) viewMode = VIEW_ANALYTICS;
     else viewMode = VIEW_RADAR;
     navSelection = 0;
+    Serial.print("PBL_RADAR_UI,bottom_view=");
+    if (viewMode == VIEW_RADAR) Serial.println("RADAR");
+    else if (viewMode == VIEW_HUMAN) Serial.println("HUMAN");
+    else Serial.println("ANALYTICS");
   }
 }
 
@@ -1033,7 +1043,7 @@ static void resetBaseline() {
 }
 
 static void handleControlTap(int x, int y) {
-  if (y <= 60) {
+  if (y <= 90) {
     if (x < 80) viewMode = VIEW_RADAR;
     else if (x < 160) viewMode = VIEW_HUMAN;
     else viewMode = VIEW_ANALYTICS;
