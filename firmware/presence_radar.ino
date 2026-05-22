@@ -113,6 +113,19 @@ String statusLine = "Calibrating";
 String inferenceLine = "Learning this room";
 String tacticalLine = "Adaptive RF baseline";
 
+enum ViewMode {
+  VIEW_RADAR,
+  VIEW_ANALYTICS
+};
+
+ViewMode viewMode = VIEW_RADAR;
+int historyConfidence[30] = {0};
+int historyMotion[30] = {0};
+int historyRoom[30] = {0};
+int historySilhouette[30] = {0};
+int historyIndex = 0;
+int historyCount = 0;
+
 static void setBrightness(uint8_t value) {
   static uint8_t steps = 16;
   static uint8_t brightness = 0;
@@ -154,6 +167,16 @@ static void drawButton(int x, int y, int w, int h, const String &label, uint16_t
   tft.drawString(label, x + w / 2, y + h / 2, 2);
 }
 
+static void drawNavButton(int x, int y, int w, const String &label, uint16_t color, bool active) {
+  uint16_t bg = active ? color : C_PANEL2;
+  uint16_t fg = active ? C_BG : C_TEXT;
+  tft.fillRoundRect(x, y, w, 34, 4, bg);
+  tft.drawRoundRect(x, y, w, 34, 4, color);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(fg, bg);
+  tft.drawString(label, x + w / 2, y + 17, 2);
+}
+
 static bool buttonShort() {
   static bool last = false;
   static uint32_t downAt = 0;
@@ -185,6 +208,15 @@ static uint16_t scoreColor() {
   if (presenceScore >= 40) return TFT_ORANGE;
   if (presenceScore >= 20) return TFT_YELLOW;
   return TFT_GREEN;
+}
+
+static void recordAnalyticsSample() {
+  historyConfidence[historyIndex] = humanConfidence;
+  historyMotion[historyIndex] = motionScore;
+  historyRoom[historyIndex] = roomScore;
+  historySilhouette[historyIndex] = silhouetteScore;
+  historyIndex = (historyIndex + 1) % 30;
+  historyCount = min(30, historyCount + 1);
 }
 
 static uint32_t fnv1a(const uint8_t *data, int len) {
@@ -575,6 +607,7 @@ static void scanWifi() {
   WiFi.scanDelete();
   scanBle();
   computePresence();
+  recordAnalyticsSample();
   emitPresenceEventIfNeeded();
 }
 
@@ -622,6 +655,49 @@ static void drawMetricBar(int x, int y, int w, const String &label, int value, u
   tft.drawString(label, x, y, 1);
   tft.drawRect(x + 24, y + 2, w, 5, C_GRID);
   tft.fillRect(x + 25, y + 3, max(1, (w - 2) * value / 100), 3, color);
+}
+
+static void drawAnalyticsBar(int x, int y, int w, const String &label, int value, uint16_t color) {
+  value = constrain(value, 0, 100);
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextColor(C_TEXT, C_PANEL);
+  tft.drawString(label, x, y, 2);
+  tft.setTextDatum(TR_DATUM);
+  tft.drawString(String(value) + "%", x + w, y, 2);
+  tft.drawRect(x, y + 18, w, 8, C_GRID);
+  tft.fillRect(x + 1, y + 19, max(1, (w - 2) * value / 100), 6, color);
+}
+
+static void drawAnalyticsSpark(int x, int y, int w, int h, int *values, uint16_t color) {
+  tft.drawRect(x, y, w, h, C_GRID);
+  if (historyCount < 2) {
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(C_MUTED, C_BG);
+    tft.drawString("learning", x + w / 2, y + h / 2, 1);
+    return;
+  }
+  int previousX = x + 2;
+  int oldest = (historyIndex - historyCount + 30) % 30;
+  int previousValue = values[oldest];
+  int previousY = y + h - 3 - previousValue * (h - 6) / 100;
+  for (int i = 1; i < historyCount; i++) {
+    int idx = (oldest + i) % 30;
+    int px = x + 2 + i * (w - 4) / max(1, historyCount - 1);
+    int py = y + h - 3 - constrain(values[idx], 0, 100) * (h - 6) / 100;
+    tft.drawLine(previousX, previousY, px, py, color);
+    previousX = px;
+    previousY = py;
+  }
+}
+
+static void drawAnalyticsCard(int x, int y, int w, int h, const String &label, const String &value, uint16_t color) {
+  tft.fillRoundRect(x, y, w, h, 5, C_PANEL);
+  tft.drawRoundRect(x, y, w, h, 5, color);
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextColor(C_MUTED, C_PANEL);
+  tft.drawString(label, x + 7, y + 5, 1);
+  tft.setTextColor(C_TEXT, C_PANEL);
+  tft.drawString(value, x + 7, y + 20, 2);
 }
 
 static void drawRfSilhouette(int cx, int cy) {
@@ -763,9 +839,58 @@ static void drawRadar() {
   tft.drawString("BLE " + String(bleCount), 198, 249, 1);
   tft.drawString("AP " + String(networkCount), 198, 260, 1);
 
-  drawButton(4, 279, 72, 36, "SENS " + String(sensitivity), C_ACCENT);
-  drawButton(84, 279, 72, 36, "BASE", C_WARN);
-  drawButton(164, 279, 72, 36, "SCAN", C_WIFI);
+  drawNavButton(4, 281, 54, "SENS", C_ACCENT, false);
+  drawNavButton(62, 281, 54, "BASE", C_WARN, false);
+  drawNavButton(120, 281, 54, "SCAN", C_WIFI, false);
+  drawNavButton(178, 281, 58, "ANLYT", C_BLE, viewMode == VIEW_ANALYTICS);
+}
+
+static void drawAnalytics() {
+  tft.fillScreen(C_BG);
+  tft.fillRect(0, 0, 240, 37, C_PANEL);
+  tft.drawFastHLine(0, 37, 240, C_ACCENT);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(C_TEXT, C_PANEL);
+  tft.drawString("PBL-RADAR", 51, 12, 2);
+  tft.setTextColor(C_ACCENT, C_PANEL);
+  tft.drawString("ANALYTICS", 166, 12, 2);
+  tft.setTextColor(C_MUTED, C_PANEL);
+  tft.drawString("LIVE RF + BLE SIGNAL INTEL", 120, 27, 1);
+
+  uint16_t verdictColor = humanDetected ? C_HOT : (humanConfidence >= 36 ? C_WARN : C_ACCENT);
+  drawAnalyticsCard(6, 45, 110, 47, "VERDICT", humanDetected ? "HUMAN" : "WATCH", verdictColor);
+  drawAnalyticsCard(124, 45, 110, 47, "SOURCES", "AP " + String(networkCount) + "  BLE " + String(bleCount), C_WIFI);
+  drawAnalyticsCard(6, 98, 70, 43, "NEW", "W" + String(newDeviceCount) + " B" + String(newBleCount), C_WARN);
+  drawAnalyticsCard(84, 98, 70, 43, "LEFT", "W" + String(vanishedDeviceCount) + " B" + String(vanishedBleCount), C_BLE);
+  drawAnalyticsCard(162, 98, 72, 43, "NOISE", String((int)rfNoiseFloor), C_ACCENT);
+
+  tft.fillRoundRect(6, 148, 228, 72, 5, C_PANEL);
+  tft.drawRoundRect(6, 148, 228, 72, 5, C_GRID);
+  drawAnalyticsBar(15, 155, 94, "CONF", humanConfidence, verdictColor);
+  drawAnalyticsBar(129, 155, 94, "ROOM", roomScore, C_ACCENT);
+  drawAnalyticsBar(15, 188, 94, "MOTION", motionScore, C_WARN);
+  drawAnalyticsBar(129, 188, 94, "SHAPE", silhouetteScore, C_HOT);
+
+  tft.setTextDatum(TL_DATUM);
+  tft.setTextColor(C_TEXT, C_BG);
+  tft.drawString("CONF", 8, 225, 1);
+  tft.drawString("MOT", 66, 225, 1);
+  tft.drawString("ROOM", 124, 225, 1);
+  tft.drawString("SHAPE", 182, 225, 1);
+  drawAnalyticsSpark(6, 238, 52, 33, historyConfidence, verdictColor);
+  drawAnalyticsSpark(64, 238, 52, 33, historyMotion, C_WARN);
+  drawAnalyticsSpark(122, 238, 52, 33, historyRoom, C_ACCENT);
+  drawAnalyticsSpark(180, 238, 54, 33, historySilhouette, C_HOT);
+
+  drawNavButton(4, 281, 54, "RADAR", C_ACCENT, true);
+  drawNavButton(62, 281, 54, "SENS", C_WARN, false);
+  drawNavButton(120, 281, 54, "BASE", C_WIFI, false);
+  drawNavButton(178, 281, 58, "SCAN", C_BLE, false);
+}
+
+static void drawCurrentView() {
+  if (viewMode == VIEW_ANALYTICS) drawAnalytics();
+  else drawRadar();
 }
 
 static void resetBaseline() {
@@ -808,24 +933,44 @@ static void resetBaseline() {
 }
 
 static void handleControlTap(int x, int y) {
-  bool controlStrip = y >= 246 || y <= 74;
+  bool controlStrip = y >= 274 || y <= 45;
   if (!controlStrip) return;
 
-  int zoneX = x;
-  if (zoneX < 80) {
-    sensitivity = sensitivity % 4 + 1;
-    inferenceLine = "Sensitivity " + String(sensitivity);
-    tacticalLine = "Touch OK";
-  } else if (zoneX < 160) {
-    resetBaseline();
-    inferenceLine = "Baseline reset";
-    tacticalLine = "Learning normal RF";
+  int button = constrain(x / 60, 0, 3);
+  if (viewMode == VIEW_RADAR) {
+    if (button == 0) {
+      sensitivity = sensitivity % 4 + 1;
+      inferenceLine = "Sensitivity " + String(sensitivity);
+      tacticalLine = "Touch OK";
+    } else if (button == 1) {
+      resetBaseline();
+      inferenceLine = "Baseline reset";
+      tacticalLine = "Learning normal RF";
+    } else if (button == 2) {
+      inferenceLine = "Manual scan";
+      tacticalLine = "Scanning now";
+      scanWifi();
+    } else {
+      viewMode = VIEW_ANALYTICS;
+    }
   } else {
-    inferenceLine = "Manual scan";
-    tacticalLine = "Scanning now";
-    scanWifi();
+    if (button == 0) {
+      viewMode = VIEW_RADAR;
+    } else if (button == 1) {
+      sensitivity = sensitivity % 4 + 1;
+      inferenceLine = "Sensitivity " + String(sensitivity);
+      tacticalLine = "Analytics touch OK";
+    } else if (button == 2) {
+      resetBaseline();
+      inferenceLine = "Baseline reset";
+      tacticalLine = "Learning normal RF";
+    } else {
+      inferenceLine = "Manual scan";
+      tacticalLine = "Scanning now";
+      scanWifi();
+    }
   }
-  drawRadar();
+  drawCurrentView();
 }
 
 void setup() {
@@ -856,7 +1001,7 @@ void setup() {
   bleScan->setInterval(120);
   bleScan->setWindow(80);
   randomSeed(esp_random());
-  drawRadar();
+  drawCurrentView();
 }
 
 void loop() {
@@ -868,7 +1013,7 @@ void loop() {
   if (now - lastFrame > 120) {
     lastFrame = now;
     sweepDeg = (sweepDeg + 10) % 360;
-    drawRadar();
+    drawCurrentView();
   }
 
   int x = 0, y = 0;
@@ -876,7 +1021,7 @@ void loop() {
     handleControlTap(x, y);
   }
   if (buttonShort()) {
-    sensitivity = sensitivity % 4 + 1;
-    drawRadar();
+    viewMode = viewMode == VIEW_RADAR ? VIEW_ANALYTICS : VIEW_RADAR;
+    drawCurrentView();
   }
 }
