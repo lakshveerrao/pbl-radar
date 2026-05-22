@@ -75,6 +75,7 @@ It then combines Wi-Fi volatility, BLE volatility, device flux, baseline drift, 
 - `BASE`: set the current room as the quiet baseline.
 - `SCAN`: force a Wi-Fi scan.
 - `ANLYT`: open live analytics with confidence, room score, motion score, RF/BLE source counts, new/vanished signals, noise floor, and history charts.
+- Top tabs: tap `RADAR` or `ANALYTICS` to switch views directly.
 - On the analytics screen, `RADAR` returns to the main radar view.
 - Touch controls use large forgiving hit zones at the bottom, with a top-edge fallback for touch calibration quirks.
 - GPIO0 short press: move the highlighted bottom button.

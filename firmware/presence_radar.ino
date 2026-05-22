@@ -178,6 +178,16 @@ static void drawNavButton(int x, int y, int w, const String &label, uint16_t col
   tft.drawString(label, x + w / 2, y + 17, 2);
 }
 
+static void drawTopTab(int x, int w, const String &label, bool active, uint16_t color) {
+  uint16_t bg = active ? color : C_PANEL;
+  uint16_t fg = active ? C_BG : C_TEXT;
+  tft.fillRoundRect(x, 4, w, 29, 4, bg);
+  tft.drawRoundRect(x, 4, w, 29, 4, color);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(fg, bg);
+  tft.drawString(label, x + w / 2, 18, 2);
+}
+
 enum ButtonEvent {
   BUTTON_NONE,
   BUTTON_SHORT,
@@ -775,18 +785,16 @@ static void drawRadar() {
   tft.setTextDatum(MC_DATUM);
   tft.fillRect(0, 0, 240, 37, C_PANEL);
   tft.drawFastHLine(0, 37, 240, C_ACCENT);
-  tft.setTextColor(C_TEXT, C_PANEL);
-  tft.drawString("PBL-RADAR", 50, 12, 2);
   uint16_t verdictColor = humanDetected ? C_HOT : (humanConfidence >= 36 ? C_WARN : C_ACCENT);
+  drawTopTab(4, 108, "RADAR", viewMode == VIEW_RADAR, C_ACCENT);
+  drawTopTab(124, 112, "ANALYTICS", viewMode == VIEW_ANALYTICS, C_BLE);
   String verdict = humanDetected ? "DETECTED: HUMAN" : (humanConfidence >= 36 ? "SIGNAL: POSSIBLE" : "SCANNING");
-  tft.setTextColor(verdictColor, C_PANEL);
-  tft.drawString(verdict, 158, 12, 2);
-  tft.setTextColor(C_MUTED, C_PANEL);
-  tft.drawString("CAMERA-FREE ROOM FIELD  C" + String(humanConfidence) + "%", 120, 27, 1);
+  tft.setTextColor(verdictColor, C_BG);
+  tft.drawString(verdict + "  C" + String(humanConfidence) + "%", 120, 49, 1);
 
   int cx = 120;
-  int cy = 132;
-  int r = 82;
+  int cy = 137;
+  int r = 78;
   drawThermalField(cx, cy, r);
   tft.drawCircle(cx, cy, r, C_GRID);
   tft.drawCircle(cx, cy, 55, C_GRID2);
@@ -859,24 +867,22 @@ static void drawAnalytics() {
   tft.fillRect(0, 0, 240, 37, C_PANEL);
   tft.drawFastHLine(0, 37, 240, C_ACCENT);
   tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(C_TEXT, C_PANEL);
-  tft.drawString("PBL-RADAR", 51, 12, 2);
-  tft.setTextColor(C_ACCENT, C_PANEL);
-  tft.drawString("ANALYTICS", 166, 12, 2);
-  tft.setTextColor(C_MUTED, C_PANEL);
-  tft.drawString("LIVE RF + BLE SIGNAL INTEL", 120, 27, 1);
+  drawTopTab(4, 108, "RADAR", viewMode == VIEW_RADAR, C_ACCENT);
+  drawTopTab(124, 112, "ANALYTICS", viewMode == VIEW_ANALYTICS, C_BLE);
+  tft.setTextColor(C_MUTED, C_BG);
+  tft.drawString("LIVE RF + BLE SIGNAL INTEL", 120, 49, 1);
 
   uint16_t verdictColor = humanDetected ? C_HOT : (humanConfidence >= 36 ? C_WARN : C_ACCENT);
-  drawAnalyticsCard(6, 45, 110, 47, "VERDICT", humanDetected ? "HUMAN" : "WATCH", verdictColor);
-  drawAnalyticsCard(124, 45, 110, 47, "SOURCES", "AP " + String(networkCount) + "  BLE " + String(bleCount), C_WIFI);
-  drawAnalyticsCard(6, 98, 70, 43, "NEW", "W" + String(newDeviceCount) + " B" + String(newBleCount), C_WARN);
-  drawAnalyticsCard(84, 98, 70, 43, "LEFT", "W" + String(vanishedDeviceCount) + " B" + String(vanishedBleCount), C_BLE);
-  drawAnalyticsCard(162, 98, 72, 43, "NOISE", String((int)rfNoiseFloor), C_ACCENT);
+  drawAnalyticsCard(6, 58, 110, 43, "VERDICT", humanDetected ? "HUMAN" : "WATCH", verdictColor);
+  drawAnalyticsCard(124, 58, 110, 43, "SOURCES", "AP " + String(networkCount) + "  BLE " + String(bleCount), C_WIFI);
+  drawAnalyticsCard(6, 106, 70, 39, "NEW", "W" + String(newDeviceCount) + " B" + String(newBleCount), C_WARN);
+  drawAnalyticsCard(84, 106, 70, 39, "LEFT", "W" + String(vanishedDeviceCount) + " B" + String(vanishedBleCount), C_BLE);
+  drawAnalyticsCard(162, 106, 72, 39, "NOISE", String((int)rfNoiseFloor), C_ACCENT);
 
-  tft.fillRoundRect(6, 148, 228, 72, 5, C_PANEL);
-  tft.drawRoundRect(6, 148, 228, 72, 5, C_GRID);
-  drawAnalyticsBar(15, 155, 94, "CONF", humanConfidence, verdictColor);
-  drawAnalyticsBar(129, 155, 94, "ROOM", roomScore, C_ACCENT);
+  tft.fillRoundRect(6, 151, 228, 69, 5, C_PANEL);
+  tft.drawRoundRect(6, 151, 228, 69, 5, C_GRID);
+  drawAnalyticsBar(15, 157, 94, "CONF", humanConfidence, verdictColor);
+  drawAnalyticsBar(129, 157, 94, "ROOM", roomScore, C_ACCENT);
   drawAnalyticsBar(15, 188, 94, "MOTION", motionScore, C_WARN);
   drawAnalyticsBar(129, 188, 94, "SHAPE", silhouetteScore, C_HOT);
 
@@ -983,11 +989,20 @@ static void resetBaseline() {
 }
 
 static void handleControlTap(int x, int y) {
-  bool controlStrip = y >= 274 || y <= 45;
-  if (!controlStrip) return;
+  if (y <= 60) {
+    viewMode = x < 120 ? VIEW_RADAR : VIEW_ANALYTICS;
+    navSelection = 0;
+    Serial.print("PBL_RADAR_UI,tab=");
+    Serial.println(viewMode == VIEW_RADAR ? "RADAR" : "ANALYTICS");
+    drawCurrentView();
+    return;
+  }
+  if (y < 260) return;
 
   int button = constrain(x / 60, 0, 3);
   navSelection = button;
+  Serial.print("PBL_RADAR_UI,touch_button=");
+  Serial.println(button);
   activateNavButton(button);
   drawCurrentView();
 }
@@ -1043,8 +1058,12 @@ void loop() {
   if (buttonEvent == BUTTON_SHORT) {
     navSelection = (navSelection + 1) % 4;
     tacticalLine = "Hold to enter";
+    Serial.print("PBL_RADAR_UI,selected=");
+    Serial.println(navSelection);
     drawCurrentView();
   } else if (buttonEvent == BUTTON_LONG) {
+    Serial.print("PBL_RADAR_UI,enter=");
+    Serial.println(navSelection);
     activateNavButton(navSelection);
     drawCurrentView();
   }
