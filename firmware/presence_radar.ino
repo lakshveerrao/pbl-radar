@@ -119,6 +119,7 @@ enum ViewMode {
 };
 
 ViewMode viewMode = VIEW_RADAR;
+int navSelection = 0;
 int historyConfidence[30] = {0};
 int historyMotion[30] = {0};
 int historyRoom[30] = {0};
@@ -177,17 +178,25 @@ static void drawNavButton(int x, int y, int w, const String &label, uint16_t col
   tft.drawString(label, x + w / 2, y + 17, 2);
 }
 
-static bool buttonShort() {
+enum ButtonEvent {
+  BUTTON_NONE,
+  BUTTON_SHORT,
+  BUTTON_LONG
+};
+
+static int readButtonEvent() {
   static bool last = false;
   static uint32_t downAt = 0;
   bool now = digitalRead(BUTTON_PIN) == LOW;
   if (now && !last) downAt = millis();
-  if (!now && last && millis() - downAt > 25 && millis() - downAt < 800) {
+  if (!now && last) {
+    uint32_t held = millis() - downAt;
     last = now;
-    return true;
+    if (held > 800) return BUTTON_LONG;
+    if (held > 25) return BUTTON_SHORT;
   }
   last = now;
-  return false;
+  return BUTTON_NONE;
 }
 
 static bool touchTap(int &x, int &y) {
@@ -839,10 +848,10 @@ static void drawRadar() {
   tft.drawString("BLE " + String(bleCount), 198, 249, 1);
   tft.drawString("AP " + String(networkCount), 198, 260, 1);
 
-  drawNavButton(4, 281, 54, "SENS", C_ACCENT, false);
-  drawNavButton(62, 281, 54, "BASE", C_WARN, false);
-  drawNavButton(120, 281, 54, "SCAN", C_WIFI, false);
-  drawNavButton(178, 281, 58, "ANLYT", C_BLE, viewMode == VIEW_ANALYTICS);
+  drawNavButton(4, 281, 54, "SENS", C_ACCENT, navSelection == 0);
+  drawNavButton(62, 281, 54, "BASE", C_WARN, navSelection == 1);
+  drawNavButton(120, 281, 54, "SCAN", C_WIFI, navSelection == 2);
+  drawNavButton(178, 281, 58, "ANLYT", C_BLE, navSelection == 3);
 }
 
 static void drawAnalytics() {
@@ -882,15 +891,56 @@ static void drawAnalytics() {
   drawAnalyticsSpark(122, 238, 52, 33, historyRoom, C_ACCENT);
   drawAnalyticsSpark(180, 238, 54, 33, historySilhouette, C_HOT);
 
-  drawNavButton(4, 281, 54, "RADAR", C_ACCENT, true);
-  drawNavButton(62, 281, 54, "SENS", C_WARN, false);
-  drawNavButton(120, 281, 54, "BASE", C_WIFI, false);
-  drawNavButton(178, 281, 58, "SCAN", C_BLE, false);
+  drawNavButton(4, 281, 54, "RADAR", C_ACCENT, navSelection == 0);
+  drawNavButton(62, 281, 54, "SENS", C_WARN, navSelection == 1);
+  drawNavButton(120, 281, 54, "BASE", C_WIFI, navSelection == 2);
+  drawNavButton(178, 281, 58, "SCAN", C_BLE, navSelection == 3);
 }
 
 static void drawCurrentView() {
   if (viewMode == VIEW_ANALYTICS) drawAnalytics();
   else drawRadar();
+}
+
+static void resetBaseline();
+
+static void activateNavButton(int button) {
+  button = constrain(button, 0, 3);
+  if (viewMode == VIEW_RADAR) {
+    if (button == 0) {
+      sensitivity = sensitivity % 4 + 1;
+      inferenceLine = "Sensitivity " + String(sensitivity);
+      tacticalLine = "Button OK";
+    } else if (button == 1) {
+      resetBaseline();
+      inferenceLine = "Baseline reset";
+      tacticalLine = "Learning normal RF";
+    } else if (button == 2) {
+      inferenceLine = "Manual scan";
+      tacticalLine = "Scanning now";
+      scanWifi();
+    } else {
+      viewMode = VIEW_ANALYTICS;
+      navSelection = 0;
+    }
+  } else {
+    if (button == 0) {
+      viewMode = VIEW_RADAR;
+      navSelection = 0;
+    } else if (button == 1) {
+      sensitivity = sensitivity % 4 + 1;
+      inferenceLine = "Sensitivity " + String(sensitivity);
+      tacticalLine = "Analytics button OK";
+    } else if (button == 2) {
+      resetBaseline();
+      inferenceLine = "Baseline reset";
+      tacticalLine = "Learning normal RF";
+    } else {
+      inferenceLine = "Manual scan";
+      tacticalLine = "Scanning now";
+      scanWifi();
+    }
+  }
 }
 
 static void resetBaseline() {
@@ -937,39 +987,8 @@ static void handleControlTap(int x, int y) {
   if (!controlStrip) return;
 
   int button = constrain(x / 60, 0, 3);
-  if (viewMode == VIEW_RADAR) {
-    if (button == 0) {
-      sensitivity = sensitivity % 4 + 1;
-      inferenceLine = "Sensitivity " + String(sensitivity);
-      tacticalLine = "Touch OK";
-    } else if (button == 1) {
-      resetBaseline();
-      inferenceLine = "Baseline reset";
-      tacticalLine = "Learning normal RF";
-    } else if (button == 2) {
-      inferenceLine = "Manual scan";
-      tacticalLine = "Scanning now";
-      scanWifi();
-    } else {
-      viewMode = VIEW_ANALYTICS;
-    }
-  } else {
-    if (button == 0) {
-      viewMode = VIEW_RADAR;
-    } else if (button == 1) {
-      sensitivity = sensitivity % 4 + 1;
-      inferenceLine = "Sensitivity " + String(sensitivity);
-      tacticalLine = "Analytics touch OK";
-    } else if (button == 2) {
-      resetBaseline();
-      inferenceLine = "Baseline reset";
-      tacticalLine = "Learning normal RF";
-    } else {
-      inferenceLine = "Manual scan";
-      tacticalLine = "Scanning now";
-      scanWifi();
-    }
-  }
+  navSelection = button;
+  activateNavButton(button);
   drawCurrentView();
 }
 
@@ -1020,8 +1039,13 @@ void loop() {
   if (touchTap(x, y)) {
     handleControlTap(x, y);
   }
-  if (buttonShort()) {
-    viewMode = viewMode == VIEW_RADAR ? VIEW_ANALYTICS : VIEW_RADAR;
+  int buttonEvent = readButtonEvent();
+  if (buttonEvent == BUTTON_SHORT) {
+    navSelection = (navSelection + 1) % 4;
+    tacticalLine = "Hold to enter";
+    drawCurrentView();
+  } else if (buttonEvent == BUTTON_LONG) {
+    activateNavButton(navSelection);
     drawCurrentView();
   }
 }

@@ -77,7 +77,8 @@ It then combines Wi-Fi volatility, BLE volatility, device flux, baseline drift, 
 - `ANLYT`: open live analytics with confidence, room score, motion score, RF/BLE source counts, new/vanished signals, noise floor, and history charts.
 - On the analytics screen, `RADAR` returns to the main radar view.
 - Touch controls use large forgiving hit zones at the bottom, with a top-edge fallback for touch calibration quirks.
-- GPIO0 short press: toggle between radar and analytics views.
+- GPIO0 short press: move the highlighted bottom button.
+- GPIO0 long press: enter/activate the highlighted button.
 
 ## Email Alerts
 
