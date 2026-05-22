@@ -1,0 +1,15 @@
+# Runtime files
+*.log
+*.err.log
+__pycache__/
+.DS_Store
+.pbl_codex_inbox_state.json
+pbl_black_box_logs/
+pbl_black_box_runtime_logs/
+
+# Build output
+.pio/
+build/
+*.bin
+*.elf
+*.map
