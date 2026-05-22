@@ -61,6 +61,7 @@ It then combines Wi-Fi volatility, BLE volatility, device flux, baseline drift, 
 - The radar view includes a pro heat-map layer: cooler signal zones are blue/cyan, medium energy is yellow/orange, and high inferred activity becomes red.
 - Gadget heat appears as compact Wi-Fi/BLE hotspots; movement heat appears as larger fused contour regions.
 - The current build includes a software signal-mesh layer. It treats the strongest stable Wi-Fi source, such as a dedicated DIR-1950 hotspot/router, as an RF field anchor and fuses nearby/opposite zone changes into a stronger movement blob.
+- The live-scan renderer animates RF field decay, sweep pulses, scan progress, and predicted movement between real Wi-Fi/BLE scans. This makes the current hardware feel continuous while still being honest that the underlying radio samples arrive in scan intervals.
 - The top banner shows the main verdict: `DETECTED: HUMAN`, `SIGNAL: POSSIBLE`, or `SCANNING`, plus a confidence percentage.
 - The `HUMAN` tab is the end-user view. It shows a spatial room-style map with the T-HMI position, router/RF anchor, field lines, inferred RF silhouette/blobs, human present/absent, duration, stable/movement status, and confidence.
 - `THIS ROOM` means the signal change looks local to the T-HMI.
@@ -92,7 +93,7 @@ The firmware emits USB serial events when the verdict changes:
 - `PBL_RADAR_EVENT,HUMAN_PRESENT,...`
 - `PBL_RADAR_EVENT,HUMAN_LEFT,duration=...`
 
-Presence scanning is tuned for faster enter/leave detection: the firmware scans about every 1.8 seconds and uses separate enter/exit hysteresis so a person leaving is not hidden by lingering heat trails.
+Presence scanning is tuned for faster enter/leave detection: the firmware scans about every 1.35 seconds and uses separate enter/exit hysteresis so a person leaving is not hidden by lingering heat trails.
 
 Run the Mac bridge to email `alerts.com`:
 

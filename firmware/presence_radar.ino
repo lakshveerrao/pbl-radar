@@ -17,6 +17,9 @@
 #define TOUCHSCREEN_CS_PIN 2
 #define TOUCHSCREEN_IRQ_PIN 9
 
+static const uint16_t SCAN_INTERVAL_MS = 1350;
+static const uint8_t FRAME_INTERVAL_MS = 85;
+
 TFT_eSPI tft = TFT_eSPI();
 XPT2046 touch = XPT2046(SPI, TOUCHSCREEN_CS_PIN, TOUCHSCREEN_IRQ_PIN);
 BLEScan *bleScan = nullptr;
@@ -96,6 +99,7 @@ int vanishedBleCount = 0;
 int zoneEnergy[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 float zoneHeat[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 float zoneTrail[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+float liveField[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 int topZoneA = 0;
 int topZoneB = 4;
 int possibleHumanCount = 0;
@@ -117,6 +121,7 @@ int sensitivity = 2;
 int sweepDeg = 0;
 uint32_t lastScan = 0;
 uint32_t lastFrame = 0;
+uint32_t lastLiveTick = 0;
 String statusLine = "Calibrating";
 String inferenceLine = "Learning this room";
 String tacticalLine = "Adaptive RF baseline";
@@ -322,6 +327,7 @@ static void updateMotionField() {
     int blended = zoneEnergy[i] / 2 + excess;
     zoneHeat[i] = zoneHeat[i] * 0.72f + blended * 0.28f;
     zoneTrail[i] = max(zoneTrail[i] * 0.90f, zoneHeat[i]);
+    liveField[i] = max(liveField[i] * 0.88f, zoneHeat[i]);
     total += constrain((int)zoneHeat[i], 0, 80);
   }
   silhouetteScore = constrain(total / 4 + motionStreak * 4, 0, 100);
@@ -349,6 +355,19 @@ static void updateSignalMesh() {
     peak = max(peak, zoneEnergy[i]);
   }
   meshScore = constrain(meshTotal / 6 + peak / 2 + anchorQuality / 8, 0, 100);
+}
+
+static void updateLiveScanField() {
+  int sweepZone = ((sweepDeg + 22) % 360) / 45;
+  int opposite = (anchorZone + 4) % 8;
+  for (int i = 0; i < 8; i++) {
+    float target = zoneHeat[i] * 0.62f + zoneTrail[i] * 0.18f + zoneEnergy[i] * 0.34f;
+    if (i == anchorZone || i == opposite) target += anchorQuality * 0.16f;
+    if (i == sweepZone) target += max(18, meshScore / 2);
+    if (humanDetected && (i == topZoneA || i == topZoneB)) target += 18;
+    liveField[i] = liveField[i] * 0.80f + target * 0.20f;
+    liveField[i] = constrain(liveField[i], 0.0f, 125.0f);
+  }
 }
 
 static void classifyRfShape() {
@@ -547,6 +566,8 @@ static void emitPresenceEventIfNeeded() {
   Serial.print(humanDetected ? 1 : 0);
   Serial.print(",confidence=");
   Serial.print(humanConfidence);
+  Serial.print(",count=");
+  Serial.print(possibleHumanCount);
   Serial.print(",room=");
   Serial.print(roomScore);
   Serial.print(",motion=");
@@ -826,6 +847,14 @@ static void drawRoomHumanSilhouette(int x, int y, int intensity, uint16_t color)
   tft.drawFastVLine(x, y - bodyH / 2 - 16, bodyH + 28, C_MUTED);
 }
 
+static void drawLiveScanRibbon(int x, int y, int w) {
+  int scanProgress = (millis() - lastScan) % SCAN_INTERVAL_MS;
+  int px = x + scanProgress * w / SCAN_INTERVAL_MS;
+  tft.drawRect(x, y, w, 5, C_GRID);
+  tft.fillRect(x + 1, y + 1, max(1, px - x), 3, C_ACCENT);
+  tft.fillCircle(px, y + 2, 3, C_WIFI);
+}
+
 static void drawHumanRoomScene(uint16_t stateColor) {
   int rx = 10;
   int ry = 117;
@@ -849,6 +878,7 @@ static void drawHumanRoomScene(uint16_t stateColor) {
   tft.setTextDatum(TL_DATUM);
   tft.setTextColor(C_MUTED, C_PANEL);
   tft.drawString("T-HMI", deviceX + 9, deviceY - 5, 1);
+  drawLiveScanRibbon(rx + 12, ry + 12, rw - 24);
 
   tft.drawCircle(anchorX, anchorY, 7, C_WIFI);
   tft.drawFastHLine(anchorX - 12, anchorY, 25, C_WIFI);
@@ -862,7 +892,9 @@ static void drawHumanRoomScene(uint16_t stateColor) {
     tft.drawLine(rx + rw / 2 + bend, ry + rh / 2, deviceX, deviceY, col);
   }
 
-  int heat = max(meshScore, silhouetteScore);
+  int livePeak = 0;
+  for (int i = 0; i < 8; i++) livePeak = max(livePeak, (int)liveField[i]);
+  int heat = max(max(meshScore, silhouetteScore), livePeak);
   int sx = rx + rw / 2 + constrain((topZoneA - 3) * 12, -48, 48);
   int sy = ry + rh / 2 + constrain((motionScore - 50) / 3, -18, 18);
   if (humanDetected || humanConfidence >= 45 || heat >= 45) {
@@ -934,9 +966,9 @@ static void drawRfSilhouette(int cx, int cy) {
 
 static void drawThermalField(int cx, int cy, int r) {
   for (int i = 0; i < 8; i++) {
-    int heat = constrain((int)zoneHeat[i], 0, 100);
+    int heat = constrain((int)max(zoneHeat[i], liveField[i] * 0.82f), 0, 100);
     int trail = constrain((int)zoneTrail[i], 0, 100);
-    int level = max(heat, trail * 3 / 4);
+    int level = max(heat, max(trail * 3 / 4, (int)liveField[i]));
     if (level < 5) continue;
     float a = (i * 45 + 22) * DEG_TO_RAD;
     int rr = map(level, 5, 100, 34, r - 8);
@@ -954,7 +986,7 @@ static void drawMeshField(int cx, int cy, int r) {
   tft.drawFastHLine(ax - 9, ay, 19, C_WIFI);
   tft.drawFastVLine(ax, ay - 9, 19, C_WIFI);
   for (int i = 0; i < 8; i++) {
-    int heat = constrain((int)zoneHeat[i] + zoneEnergy[i] / 2, 0, 100);
+    int heat = constrain((int)max(liveField[i], zoneHeat[i]) + zoneEnergy[i] / 2, 0, 100);
     if (heat < 12) continue;
     float a = (i * 45 + 22) * DEG_TO_RAD;
     int ex = cx + cos(a) * (r - 12);
@@ -975,10 +1007,11 @@ static void drawRadar() {
   String verdict = humanDetected ? "DETECTED: HUMAN" : (humanConfidence >= 36 ? "SIGNAL: POSSIBLE" : "SCANNING");
   tft.setTextColor(verdictColor, C_BG);
   tft.drawString(verdict + "  C" + String(humanConfidence) + "%", 120, 49, 1);
+  drawLiveScanRibbon(31, 57, 178);
 
   int cx = 120;
-  int cy = 137;
-  int r = 78;
+  int cy = 140;
+  int r = 75;
   drawThermalField(cx, cy, r);
   drawMeshField(cx, cy, r);
   tft.drawCircle(cx, cy, r, C_GRID);
@@ -1040,6 +1073,9 @@ static void drawRadar() {
   tft.setTextColor(C_MUTED, C_PANEL);
   tft.drawString("BLE " + String(bleCount), 198, 249, 1);
   tft.drawString("AP " + String(networkCount), 198, 260, 1);
+  tft.setTextColor(C_MUTED, C_BG);
+  tft.setTextDatum(TR_DATUM);
+  tft.drawString("LIVE " + String((millis() - lastScan) / 100) + "." + String(((millis() - lastScan) / 10) % 10) + "s", 236, 66, 1);
 
   drawNavButton(4, 281, 54, "SENS", C_ACCENT, navSelection == 0);
   drawNavButton(62, 281, 54, "BASE", C_WARN, navSelection == 1);
@@ -1260,13 +1296,17 @@ void setup() {
 
 void loop() {
   uint32_t now = millis();
-  if (now - lastScan > 1800) {
+  if (now - lastScan > SCAN_INTERVAL_MS) {
     lastScan = now;
     scanWifi();
   }
-  if (now - lastFrame > 120) {
+  if (now - lastLiveTick > FRAME_INTERVAL_MS) {
+    lastLiveTick = now;
+    updateLiveScanField();
+  }
+  if (now - lastFrame > FRAME_INTERVAL_MS) {
     lastFrame = now;
-    sweepDeg = (sweepDeg + 10) % 360;
+    sweepDeg = (sweepDeg + 14) % 360;
     drawCurrentView();
   }
 
